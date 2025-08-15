@@ -167,42 +167,120 @@ def read_disks():
 
 # --------------- Proxmox -----------------
 def proxmox_info():
-    info={"vm_running":0,"vm_total":0,"lxc_running":0,"lxc_total":0,"vms":[],"lxcs":[]}
-    qm = shutil.which("qm")
-    pct = shutil.which("pct")
+    """
+    Prefer pvesh JSON (no fragile columns). Fallbacks handle swapped column orders.
+    Returns:
+      {"vm_running":int,"vm_total":int,"lxc_running":int,"lxc_total":int,
+       "vms":[{id,name,status,node,type:"qemu"}],
+       "lxcs":[{id,name,status,node,type:"lxc"}]}
+    """
+    import json, shutil, socket, re, subprocess
+
+    def _sh(cmd):
+        return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+
     node = socket.gethostname()
-    # VMs
-    if qm:
-        out = sh("qm list --no-status --full 2>/dev/null || qm list 2>/dev/null")
-        # Fallback parse: ID NAME STATUS
-        for ln in out.splitlines():
-            if not ln.strip() or ln.lower().startswith(("vmid","id")): 
-                continue
-            parts = ln.split()
-            if len(parts) >= 3 and parts[0].isdigit():
-                vmid = int(parts[0]); status = parts[-1].lower()
-                name = " ".join(parts[1:-1])
-                info["vms"].append({"id":vmid,"name":name or str(vmid),"status":status,"node":node,"type":"qemu"})
-    # LXCs
-    if pct:
-        out = sh("pct list 2>/dev/null")
-        for ln in out.splitlines():
-            if not ln.strip() or ln.lower().startswith(("vmid","id")): 
-                continue
-            parts = ln.split()
-            if len(parts) >= 3 and parts[0].isdigit():
-                vmid = int(parts[0]); status = parts[-1].lower()
-                name = " ".join(parts[1:-1])
-                # Try name from config if numeric
-                if name.isdigit():
-                    cfg = sh(f"pct config {vmid} | grep -i '^hostname:'")
-                    m = re.search(r'hostname:\s*(.+)$', cfg, re.IGNORECASE)
-                    if m:
-                        name = m.group(1).strip()
-                info["lxcs"].append({"id":vmid,"name":name or str(vmid),"status":status,"node":node,"type":"lxc"})
-    info["vm_total"] = len(info["vms"])
-    info["lxc_total"] = len(info["lxcs"])
-    info["vm_running"] = sum(1 for v in info["vms"] if v["status"]=="running")
+    info = {"vm_running":0,"vm_total":0,"lxc_running":0,"lxc_total":0,"vms":[],"lxcs":[]}
+
+    # --- Preferred: pvesh JSON
+    if shutil.which("pvesh"):
+        try:
+            out = _sh("pvesh get /cluster/resources --type vm --output-format json")
+            data = json.loads(out)
+            for it in data:
+                typ    = it.get("type")          # "qemu" or "lxc"
+                vmid   = it.get("vmid")
+                name   = it.get("name") or str(vmid)
+                status = it.get("status","unknown")
+                n      = it.get("node", node)
+                if typ == "qemu":
+                    info["vms"].append({"id":vmid,"name":name,"status":status,"node":n,"type":"qemu"})
+                elif typ == "lxc":
+                    info["lxcs"].append({"id":vmid,"name":name,"status":status,"node":n,"type":"lxc"})
+            info["vms"].sort(key=lambda x: x["id"])
+            info["lxcs"].sort(key=lambda x: x["id"])
+            info["vm_total"]    = len(info["vms"])
+            info["lxc_total"]   = len(info["lxcs"])
+            info["vm_running"]  = sum(1 for v in info["vms"]  if v["status"]=="running")
+            info["lxc_running"] = sum(1 for c in info["lxcs"] if c["status"]=="running")
+            return info
+        except Exception:
+            pass  # fall back
+
+    # --- Fallback: qm list + qm status
+    if shutil.which("qm"):
+        try:
+            out = _sh("qm list --no-status --full 2>/dev/null || qm list 2>/dev/null")
+            lines = [ln for ln in out.splitlines() if ln.strip()]
+            data_lines = [ln for ln in lines if not re.match(r'^\s*(VMID|ID)\b', ln, re.IGNORECASE)]
+            for ln in data_lines:
+                parts = ln.split()
+                if not parts or not parts[0].isdigit():
+                    continue
+                vmid = int(parts[0])
+                # Heuristic: name is tokens after VMID until first pure number/float
+                name_tokens = []
+                for tok in parts[1:]:
+                    if re.fullmatch(r'\d+(\.\d+)?', tok):
+                        break
+                    name_tokens.append(tok)
+                name = " ".join(name_tokens).strip() or str(vmid)
+                try:
+                    st = _sh(f"qm status {vmid} | awk '/status:/{{print $2}}'")
+                    status = st.strip().lower() or "unknown"
+                except Exception:
+                    status = "unknown"
+                info["vms"].append({"id":vmid,"name":name,"status":status,"node":node,"type":"qemu"})
+        except Exception:
+            pass
+
+    # --- Fallback: pct list (header-aware; handles swapped status/name)
+    if shutil.which("pct"):
+        try:
+            out = _sh("pct list 2>/dev/null")
+            lines = [ln for ln in out.splitlines() if ln.strip()]
+            if lines:
+                hdr = lines[0].lower().split()
+                idx_id     = next((i for i,t in enumerate(hdr) if t in ("vmid","id")), None)
+                idx_status = next((i for i,t in enumerate(hdr) if t == "status"), None)
+                idx_name   = next((i for i,t in enumerate(hdr) if t == "name"), None)
+
+                for ln in lines[1:]:
+                    parts = ln.split()
+                    if not parts or idx_id is None or len(parts) <= idx_id or not parts[idx_id].isdigit():
+                        continue
+                    vmid = int(parts[idx_id])
+
+                    status = "unknown"
+                    name = ""
+                    if idx_status is not None and len(parts) > idx_status:
+                        status = parts[idx_status].lower()
+                    if idx_name is not None and len(parts) > idx_name:
+                        name = parts[idx_name]
+
+                    # Handle layout like: "VMID running palmr" (status then name)
+                    if name in ("running","stopped","paused","unknown") and status not in ("running","stopped","paused"):
+                        name, status = status, name
+
+                    if not name or name.isdigit():
+                        try:
+                            cfg = _sh(f"pct config {vmid} | grep -i '^hostname:' | awk '{{print $2}}'")
+                            if cfg.strip():
+                                name = cfg.strip()
+                        except Exception:
+                            pass
+                    if not name:
+                        name = str(vmid)
+
+                    info["lxcs"].append({"id":vmid,"name":name,"status":status,"node":node,"type":"lxc"})
+        except Exception:
+            pass
+
+    info["vms"].sort(key=lambda x: x["id"])
+    info["lxcs"].sort(key=lambda x: x["id"])
+    info["vm_total"]    = len(info["vms"])
+    info["lxc_total"]   = len(info["lxcs"])
+    info["vm_running"]  = sum(1 for v in info["vms"]  if v["status"]=="running")
     info["lxc_running"] = sum(1 for c in info["lxcs"] if c["status"]=="running")
     return info
 
