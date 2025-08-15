@@ -1,6 +1,6 @@
 # Changelog
 
-## 2025-08-15 — Host-Side v1.1.27
+## 2025-08-15 — Host-Side v1.1.26
 
 ### Added
 - Installer now enforces that **exactly one** ESP32 is connected before proceeding.
