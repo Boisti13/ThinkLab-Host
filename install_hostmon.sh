@@ -44,27 +44,27 @@ detect_one_esp() {
   local candidates=()
 
   if [[ -n "$serial_override" ]]; then
-    [[ -e "$serial_override" ]] || { echo "[FATAL] --serial path not found: $serial_override"; exit 1; }
+    [[ -e "$serial_override" ]] || { echo "[FATAL] --serial path not found: $serial_override" >&2; exit 1; }
     echo "$serial_override"
     return
   fi
 
   # Prefer Espressif by-id
   if [[ -d "$byid" ]]; then
-    mapfile -t esp < <(ls -1 "$byid" 2>/dev/null | grep -i 'Espressif' || true)
+    mapfile -t esp < <(find "$byid" -maxdepth 1 -type l -iname '*Espressif*' -printf "%f\n" | sort)
     if (( ${#esp[@]} == 1 )); then
       echo "$byid/${esp[0]}"; return
     fi
     # If multiple esp by-id: fail w/ list
     if (( ${#esp[@]} > 1 )); then
-      echo "[FATAL] Multiple Espressif by-id devices found:"; printf '  - %s/%s\n' "$byid" "${esp[@]}"; exit 1
+      { echo "[FATAL] Multiple Espressif by-id devices found:"; printf '  - %s/%s\n' "$byid" "${esp[@]}"; } >&2; exit 1
     fi
-    # Otherwise: any single tty-ish by-id
-    mapfile -t any < <(find "$byid" -maxdepth 1 -type l -name "*tty*" -printf "%f\n" | sort || true)
+    # Otherwise: any single by-id serial device
+    mapfile -t any < <(find "$byid" -maxdepth 1 -type l -printf "%f\n" | sort)
     if (( ${#any[@]} == 1 )); then echo "$byid/${any[0]}"; return; fi
     if (( ${#any[@]} > 1 )); then
-      echo "[FATAL] Multiple serial by-id devices present; connect only the target ESP32, or use --serial:"
-      printf '  - %s/%s\n' "$byid" "${any[@]}"; exit 1
+      { echo "[FATAL] Multiple serial by-id devices present; connect only the target ESP32, or use --serial:"
+        printf '  - %s/%s\n' "$byid" "${any[@]}"; } >&2; exit 1
     fi
   fi
 
@@ -79,10 +79,10 @@ detect_one_esp() {
 
   if (( ${#filtered[@]} == 1 )); then echo "${filtered[0]}"; return; fi
   if (( ${#filtered[@]} == 0 )); then
-    echo "[FATAL] No ESP32 serial device found. Connect exactly one ESP and try again."; exit 1
+    echo "[FATAL] No ESP32 serial device found. Connect exactly one ESP and try again." >&2; exit 1
   fi
-  echo "[FATAL] Multiple serial devices detected; connect only one ESP or pass --serial:"
-  printf '  - %s\n' "${filtered[@]}"; exit 1
+  { echo "[FATAL] Multiple serial devices detected; connect only one ESP or pass --serial:"
+    printf '  - %s\n' "${filtered[@]}"; } >&2; exit 1
 }
 
 require_root
@@ -116,13 +116,9 @@ if [[ ! -f "$CONFIG" || $force -eq 1 ]]; then
   cat > "$CONFIG" <<YAML
 serial_device: "${SERIAL_PATH}"
 baud: 115200
-log_level: ${trace:+debug}
-trace_payloads: ${trace:+true}
+log_level: $([[ $trace -eq 1 ]] && echo debug || echo info)
+trace_payloads: $([[ $trace -eq 1 ]] && echo true || echo false)
 YAML
-  if [[ $trace -eq 0 ]]; then
-    sed -i 's/log_level:.*/log_level: info/' "$CONFIG"
-    sed -i 's/trace_payloads:.*/trace_payloads: false/' "$CONFIG"
-  fi
   echo "[INFO] Wrote config: $CONFIG"
 fi
 

@@ -1,0 +1,19 @@
+[project]
+name = "thinklab-host"
+version = "1.2.0"
+description = "Host service that answers the ThinkLab e-paper display over USB serial"
+requires-python = ">=3.9"
+dependencies = ["pyserial", "pyyaml"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

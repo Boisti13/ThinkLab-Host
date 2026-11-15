@@ -1,0 +1,26 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Debian 12 and 13 (Proxmox VE 8 and 9)
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install pyserial pyyaml pytest ruff
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: python -m pytest -q
+      - run: bash -n install_hostmon.sh && bash -n uninstall_hostmon.sh
+      - run: shellcheck install_hostmon.sh uninstall_hostmon.sh

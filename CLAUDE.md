@@ -32,8 +32,12 @@ changes, and keep the README's example payload current.
 - Keep it light: it runs on a Proxmox host every 2 min. No disk wake-ups
   (`hdparm -C` only, no SMART on spun-down disks), no new dependencies
   beyond `pyyaml` and `pyserial` without a reason.
-- No tests yet; at least `python3 -m py_compile hostmon.py` and one real
-  `GET` against the board (or a pty pair) before pushing.
+- **Checks before pushing**: venv `~/.venvs/thinklab-host` (pyserial,
+  pyyaml, pytest, ruff, shellcheck-py): `ruff check .`, `ruff format
+  --check .`, `python -m pytest -q`, `shellcheck *.sh`; GitHub runs the
+  same (`checks.yml`). Before deploying, run `build_snapshot()` once on the
+  host with the installed venv (import the new file from `/tmp`, no serial
+  port needed) and compare the numbers with the live system.
 - README and CHANGELOG follow the owner's house style (badges, highlights,
   tables; `## vX.Y.Z — date`, Added / Changed / Fixed / Under the hood,
   *Unreleased* on top); update both with every user-visible change.
