@@ -12,7 +12,7 @@ setup and the network rates. The screen's firmware is
 dashboard for an ESP32-C3.
 
 No network, no open ports, no polling of its own: it only answers when the
-board asks (every two minutes with the stock firmware).
+board asks (every minute with the stock firmware).
 
 ## Highlights
 

@@ -22,14 +22,14 @@ changes, and keep the README's example payload current.
 - **Deploying a change**: back up the installed script and config first
   (owner's backup place, see `homelab.md`), copy the committed
   `hostmon.py` over, `systemctl restart hl-hostmon`. The board polls every
-  2 min, so wait one interval and check it still gets answers (with
+  minute (2 min before firmware 0.3.1), so wait one interval and check it still gets answers (with
   `log_level: info` nothing is logged: compare `wchar` in
   `/proc/<pid>/io` before and after a poll, or turn tracing on briefly).
 - `--trace` / `log_level: debug` + `trace_payloads: true` writes every
   request and the full reply to the journal (≈ 1 MB/day): for debugging
   only, switch it back off afterwards. The board's own ESP-IDF log lines
   arrive on the same port and show up in the trace as `<- …`.
-- Keep it light: it runs on a Proxmox host every 2 min. No disk wake-ups
+- Keep it light: it runs on a Proxmox host every minute. No disk wake-ups
   (`hdparm -C` only, no SMART on spun-down disks), no new dependencies
   beyond `pyyaml` and `pyserial` without a reason.
 - **Checks before pushing**: venv `~/.venvs/thinklab-host` (pyserial,
